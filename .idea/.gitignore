@@ -1,5 +1,6 @@
 # Default ignored files
 <<<<<<< HEAD
+<<<<<<< HEAD
 /shelf/
 /workspace.xml
 # Datasource local storage ignored files
@@ -7,6 +8,9 @@
 /dataSources.local.xml
 # Editor-based HTTP Client requests
 /httpRequests/
+=======
+/workspace.xml
+>>>>>>> 831c0181e0347735b0669be7fe1ad09069f96103
 =======
 /workspace.xml
 >>>>>>> 831c0181e0347735b0669be7fe1ad09069f96103

@@ -557,6 +557,7 @@ if __name__ == '__main__':
                         help='Set time to start monitoring. e.g. \"23:59:58\" , if no setting, start immediately',
                         default="")
 
+
     sku_id = '100010793473'    # iPad Pro 10.5的sku    https://item.jd.com/5504364.html
     # 浙江省台州市温岭市松门镇的id, 如何获取area_id请看area_id.png
     area_id = '1_2800_2848_0'
