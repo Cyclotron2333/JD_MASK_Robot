@@ -14,7 +14,7 @@ from email.mime.text import MIMEText
 from email.utils import formataddr
 
 logging.basicConfig(
-    format="[%(levelname)s] %(funcName)s: %(message)s",
+    format="%(asctime)s - %(threadName)s - %(levelname)s - %(lineno)d - %(funcName)s - %(message)s",
     level=logging.INFO
 )
 
@@ -22,6 +22,7 @@ logging.basicConfig(
 class JDSpider:
 
     def __init__(self):
+
         # init url related
         self.home = 'https://passport.jd.com/new/login.aspx'
         self.login = 'https://passport.jd.com/uc/loginService'
@@ -42,7 +43,6 @@ class JDSpider:
 
         }
 
-        self.gname = ''    # 商品名称
         self.eid = 'DHPVSQRUFPP6GFJ7WPOFDKYQUGQSREWJLJ5QJPDOSJ2BYF55IZHP5XX3K2BKW36H5IU3S4R6GPU7X3YOGRJGW7XCF4'
         self.fp = 'b450f02af7d98727ef061e8806361c67'
 
@@ -60,7 +60,7 @@ class JDSpider:
                     return False
                 else:
                     print('登录成功!')
-                    self.cookies.update(dict(cookies))    # 从之前保存的cookie文件中恢复cookie
+                    self.cookies.update(dict(cookies))
                     return True
 
         except Exception as e:
@@ -125,13 +125,13 @@ class JDSpider:
                     # for Mac platform
                     os.system("open " + image_file)
 
-            # step 3: check scan result    京东上也是不断去发送check请求来判断是否扫码成功
+            # step 3: check scan result    京东上也是不断去发送check请求来判断是否扫码的
             self.headers['Host'] = 'qr.m.jd.com'
             self.headers['Referer'] = 'https://passport.jd.com/new/login.aspx'
 
             # check if QR code scanned
             qr_ticket = None
-            retry_times = 100    # 尝试100次
+            retry_times = 100  # 尝试100次
             while retry_times:
                 retry_times -= 1
                 response = self.sess.get(
@@ -210,21 +210,21 @@ class JDSpider:
 
         params = {
             "skuIds": skuId,
-            "area": area_id,    # 收货地址id
+            "area": area_id,  # 收货地址id
             "type": "getstocks",
-            "_": int(time.time()*1000)
+            "_": int(time.time() * 1000)
         }
 
-        headers = {"Referer": "https://item.jd.com/5504364.html",
-                   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.142 Safari/537.36",
+        headers = {"Referer": f"https://item.jd.com/{skuId}.html",
+                   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+                                 "Chrome/75.0.3770.142 Safari/537.36",
                    }
         try:
             response = requests.get(url, params=params, headers=headers)
-            response.encoding = 'utf-8'
-            # print(response.text)
+            # print(response.text)    # 33: 现货    34: 无货     40: 可配货
             json_dict = json.loads(response.text)
-            stock_state = json_dict[skuId]['StockState']    # 33: 现货    34: 无货     40: 可配货
-            stock_state_name = json_dict[skuId]['StockStateName']    # 这个乱码
+            stock_state = json_dict[skuId]['StockState']
+            stock_state_name = json_dict[skuId]['StockStateName']
             return stock_state, stock_state_name
         except Exception as e:
             logging.error(e)
@@ -289,7 +289,7 @@ class JDSpider:
     def buy(self, options):
         # good detail
         good_data = self.good_detail(options.good, options.area)
-        if good_data['stock'] != 33:    # 如果没有现货
+        if good_data['stock'] != 33:  # 如果没有现货
             # flush stock state
             while good_data['stock'] != 33 and options.flush:
                 print(good_data['stock'], good_data['name'])
@@ -298,157 +298,179 @@ class JDSpider:
                                                                              area_id=options.area)
 
         cart_link = good_data['cart_link']
-        if cart_link == '':    # 如果有货, 但是没有购物车链接
+        if cart_link == '':  # 如果有货, 但是没有购物车链接
             print("没有购物车链接")
             return False
 
+        # 先取消全部 然后再改
+        self.cancelAllItem(options.area)
         try:
             # change buy count
-            if options.count != 1:
-                cart_link = cart_link.replace('pcount=1', 'pcount={0}'.format(options.count))
+            cart_info_dict = self.cart_detail()  # 先获取购物车的信息
+            if options.good in cart_info_dict.keys():  # 如果之前添加过购物车了
+                self.change_num(options.count,
+                                cart_info_dict[options.good]['verderid'],
+                                options.good,
+                                options.area)
 
-            response = self.sess.get(cart_link, cookies=self.cookies)
-            soup = BeautifulSoup(response.text, "lxml")
-            tag = soup.find("h3", class_='ftx-02')
-            if tag:
-                print(tag.text)
-            else:
-                print('添加到购物车失败')
-                return False
+            else:  # 如果没有添加过购物车
+                if options.count != 1:
+                    cart_link = cart_link.replace('pcount=1', 'pcount={0}'.format(options.count))
+                response = self.sess.get(cart_link, cookies=self.cookies)
+                soup = BeautifulSoup(response.text, "lxml")
+                tag = soup.find("h3", class_='ftx-02')
+                if tag:
+                    print(tag.text)  # 商品已成功加入购物车！
+                else:
+                    print('添加到购物车失败')
+                    return False
 
         except Exception as e:
             logging.error(e)
             return False
         else:
-            self.cart_detail()
             return self.order_info(options.submit)
 
     def cart_detail(self):
-        # list all goods detail in cart
+        # get info of cart
         cart_url = 'https://cart.jd.com/cart.action'
-        cart_header = '购买    数量     价格        总价        商品'
-        cart_format = '{0:8}{1:8}{2:12}{3:12}{4}'
 
-        # try:
         response = self.sess.get(cart_url, cookies=self.cookies)
         response.encoding = 'utf-8'
         soup = BeautifulSoup(response.text, "lxml")
-        print('+++++++++++++++++++++++++++++++++++++++++++++++++++++++')
-        print(f'{time.ctime()} > 购物车明细')
-        print(cart_header)
 
-        try:
-            for item in soup.select('div.item-form'):
-                check = item.select('div.cart-checkbox input')[0]['checked']
-                check = ' + ' if check else ' - '
-                count = item.select('div.quantity-form input')[0]['value']
-                price = item.select('div.p-price strong')[0].text.strip()
-                sums = item.select('div.p-sum strong')[0].text.strip()
-                gname = item.select('div.p-name a')[0].text.strip()
-                #: ￥字符解析出错, 输出忽略￥
-                print(cart_format.format(check, count, price, sums, gname))
-                self.gname = gname    #
+        cart_info_dict = dict()
 
-            t_count = soup.select('div.amount-sum em')[0].text
-            t_value = soup.select('span.sumPrice em')[0].text
-            print(f'总数: {t_count}')
-            print(f'总额: {t_value[1:]}')
-        except Exception as e:
-            logging.error(e)
+        for item in soup.find_all(class_='item-item'):
+            skuid = item['skuid']  # 商品sku
+            count = int(item['num'])  # 数量
+            venderid = item['venderid']  # 商家id
+            good_name = item.find('img')['alt']  # 商品名称
+
+            cart_info_dict[skuid] = {'count': count, 'verderid': venderid, 'good_name': good_name}
+
+        return cart_info_dict
 
     def order_info(self, submit=False):
         """
         下单
-        :param submit:
+        :param submit: 是否提交订单
         :return: 是否下单成功
         """
         # get order info detail, and submit order
         print('+++++++++++++++++++++++++++++++++++++++++++++++++++++++')
         print(f'{time.ctime()} > 订单详情')
 
-        try:
-            order_url = 'http://trade.jd.com/shopping/order/getOrderInfo.action'
-            payload = {
-                'rid': str(int(time.time() * 1000)),
-            }
+        order_url = 'http://trade.jd.com/shopping/order/getOrderInfo.action'
+        payload = {
+            'rid': str(int(time.time() * 1000)),
+        }
 
-            # 获取预下单页面
-            rs = self.sess.get(order_url, params=payload, cookies=self.cookies)
-            soup = BeautifulSoup(rs.text, "html.parser")
+        # 获取预下单页面
+        rs = self.sess.get(order_url, params=payload, cookies=self.cookies)
+        soup = BeautifulSoup(rs.text, "lxml")
 
-            # order summary
-            payment = soup.find(id='sumPayPriceId').text
-            detail = soup.find(class_='fc-consignee-info')
+        # order summary
+        payment = soup.find(id='sumPayPriceId').text  # TODO
+        detail = soup.find(class_='fc-consignee-info')
 
-            if detail:
-                snd_usr = detail.find(id='sendMobile').text    # 收货人
-                snd_add = detail.find(id='sendAddr').text      # 收货地址
+        if detail:
+            snd_usr = detail.find(id='sendMobile').text  # 收货人
+            snd_add = detail.find(id='sendAddr').text  # 收货地址
 
-                print(f'应付款：{payment}')
-                print(snd_usr)
-                print(snd_add)
+            print('应付款：{0}'.format(payment))
+            print(snd_usr)
+            print(snd_add)
 
-            # just test, not real order
-            if not submit:
-                return False
+        # just test, not real order
+        if not submit:
+            return False
 
-            # order info
-            sopNotPutInvoice = soup.find(id='sopNotPutInvoice')['value']
+        # order info
+        sopNotPutInvoice = soup.find(id='sopNotPutInvoice')['value']
 
-            btSupport = get_btSupport(soup)
-            ignorePriceChange = soup.find(id='ignorePriceChange')['value']
-            riskControl = soup.find(id='riskControl')['value']
+        btSupport = get_btSupport(soup)
+        ignorePriceChange = soup.find(id='ignorePriceChange')['value']
+        riskControl = soup.find(id='riskControl')['value']
+        jxj = get_jxj(soup)
 
-            data = {
-                'overseaPurchaseCookies': '',
-                'vendorRemarks': [],    # 貌似是订单备注    [{"venderId":"632952","remark":""}]
-                'submitOrderParam.sopNotPutInvoice': sopNotPutInvoice,    # 货票分离开关值  false or true
-                'submitOrderParam.trackID': 'TestTrackId',    # 写死
-                'submitOrderParam.get_ignorePriceChange': ignorePriceChange,    # 写死
-                'submitOrderParam.btSupport': btSupport,    # 是否支持白条
-                'submitOrderParam.eid': self.eid,    # 设备id equipment id
-                'submitOrderParam.fp': self.fp,      # 貌似也和设备信息有关
-                'riskControl': riskControl,
-                'submitOrderParam.jxj': '1',     # 惊喜金 我也不知道是个啥玩意
-                'submitOrderParam.trackId': 'cc46bf84f6274988c7cde62fce0cc11a',
-            }
-            # print(data)
-            order_url = 'http://trade.jd.com/shopping/order/submitOrder.action'
-            rp = self.sess.post(order_url, data=data, cookies=self.cookies, headers={
-                'Referer': 'https://trade.jd.com/shopping/order/getOrderInfo.action?rid='+payload['rid'],
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.142 Safari/537.36',
-            })
-            # print(rp.text)
+        data = {
+            'overseaPurchaseCookies': '',
+            'vendorRemarks': [],  # 貌似是订单备注    [{"venderId":"632952","remark":""}]
+            'submitOrderParam.sopNotPutInvoice': sopNotPutInvoice,  # 货票分离开关值  false or true
+            'submitOrderParam.trackID': 'TestTrackId',  # 写死
+            'submitOrderParam.get_ignorePriceChange': ignorePriceChange,
+            'submitOrderParam.btSupport': btSupport,  # 是否支持白条
+            'submitOrderParam.eid': self.eid,  # 设备id
+            'submitOrderParam.fp': self.fp,  # ?
+            'riskControl': riskControl,
+            'submitOrderParam.jxj': jxj,
+            'submitOrderParam.trackId': 'cc46bf84f6274988c7cde62fce0cc11a',
+        }
+        # print(data)
+        order_url = 'http://trade.jd.com/shopping/order/submitOrder.action'
+        rp = self.sess.post(order_url, data=data, cookies=self.cookies, headers={
+            'Referer': 'https://trade.jd.com/shopping/order/getOrderInfo.action?rid=' + payload['rid'],
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.142 Safari/537.36',
+        })
+        print(rp.text)
 
-            if rp.status_code == 200:
-                js = json.loads(rp.text)
-                if js['success']:
-                    print(f"下单成功！订单号：{js['orderId']}")
-                    print('请前往京东官方商城付款')
-                    # 发送邮件提醒功能请自己添加相应的邮箱账号和密码
-                    # send_email('下单成功', f'商品名称: {self.gname}, 应付款：{payment}, 请前往京东官方商城付款')
-                    return True
-                else:
-                    # 这个else分支还未测试过是否能用
-                    print('下单失败！<{0}: {1}>'.format(js['resultCode'], js['message']))
-                    if js['resultCode'] == '60017':
-                        # 60017: 您多次提交过快，请稍后再试
-                        time.sleep(1)
+        if rp.status_code == 200:
+            js = json.loads(rp.text)
+            if js['success']:
+                print('下单成功！订单号：{0}'.format(js['orderId']))
+                print('请前往京东官方商城付款')
+                # send_email('下单成功', f'应付款：{payment}, 请前往京东官方商城付款')
+                return True
             else:
-                print('请求失败. StatusCode:', rp.status_code)
-
-        except Exception as e:
-            logging.error(e)
+                print('下单失败！<{0}: {1}>'.format(js['resultCode'], js['message']))
+                if js['resultCode'] == '60017':
+                    # 60017: 您多次提交过快，请稍后再试
+                    time.sleep(1)
+        else:
+            print('请求失败. StatusCode:', rp.status_code)
 
         return False
 
+    # 改变购物车商品的数量
+    def change_num(self, num, venderId, pid, locationId):
+        """
+        :param num: 目标数量
+        :param venderId: 商家id
+        :param pid: 商品id
+        :param locationId: 收货地址id
+        :return:
+        """
+
+        url = "https://cart.jd.com/changeNum.action"
+        data = {
+            't': 0,
+            'venderId': venderId,
+            'pid': pid,
+            'pcount': num,
+            'ptype': '1',
+            'targetId': '0',
+            'promoID': '0',
+            'outSkus': '',
+            'random': random.random(),
+            'locationId': locationId,
+        }
+        res = self.sess.post(url, data=data, cookies=self.cookies)
+        assert res.status_code == 200
+
+    def cancelAllItem(self, locationId):
+        url = "https://cart.jd.com/cancelAllItem.action"
+        data = {
+            't': 0,
+            'outSkus': '',
+            'random': random.random(),
+            'locationId': locationId,
+        }
+        res = self.sess.post(url, data=data, cookies=self.cookies)
+        assert res.status_code == 200
+
 
 def get_btSupport(soup):
-    """
-    是否支持白条
-    :param soup:
-    :return:
-    """
     if len(soup.find_all(class_='payment-item', attrs={'onlinepaytype': '1'})) == 0:
         if "payment-item-disabled" in str(soup.find_all(class_='payment-item', attrs={'onlinepaytype': '1'})):
             return '0'
@@ -456,11 +478,16 @@ def get_btSupport(soup):
         return '1'
 
 
+def get_jxj(soup):
+    # //惊喜金 我也不知道是个啥玩意
+    return '1'
+
+
 def send_email(subject, message):
     try:
         my_sender = ''  # 邮件发送者
         my_pass = ''  # 邮件发送者邮箱密码
-        my_user = ''     # 收件人邮箱
+        my_user = ''
         msg = MIMEText(message, 'html', 'utf-8')
         msg['From'] = formataddr(["来自京东自动下单机器人", my_sender])
         msg['To'] = formataddr(["由我的网易邮箱接收", my_user])
@@ -472,6 +499,36 @@ def send_email(subject, message):
         server.quit()
     except Exception as e:
         logging.error(e)
+        try:
+            my_sender = ''  # 邮件发送者
+            my_pass = ''  # 邮件发送者邮箱密码
+            my_user = ''
+            msg = MIMEText(message, 'html', 'utf-8')
+            msg['From'] = formataddr(["来自京东自动下单机器人", my_sender])
+            msg['To'] = formataddr(["由我的网易邮箱接收", my_user])
+            msg['Subject'] = subject
+
+            server = smtplib.SMTP_SSL("smtp.qq.com", 465)
+            server.login(my_sender, my_pass)
+            server.sendmail(my_sender, [my_user, ], msg.as_string())
+            server.quit()
+        except Exception as e:
+            logging.error(e)
+
+
+def should_monitor(clock):
+    if clock == '':
+        return True
+    else:
+        [sys_hour, sys_min, sys_sec] = map(int, time.strftime('%H:%M:%S').split(':'))
+        [c_hour, c_min, c_sec] = map(int, clock.split(':'))
+        if sys_hour > c_hour:
+            return True
+        if sys_hour >= c_hour and sys_min > c_min:
+            return True
+        if sys_hour >= c_hour and sys_min >= c_min and sys_sec >= c_sec:
+            return True
+        return False
 
 
 if __name__ == '__main__':
@@ -485,7 +542,7 @@ if __name__ == '__main__':
     parser.add_argument('-c', '--count', type=int,
                         help='The count to buy', default=1)
     parser.add_argument('-w', '--wait',
-                        type=int, default=1000,
+                        type=int, default=1000,ç
                         help='Flush time interval, unit MS')
     parser.add_argument('-f', '--flush',
                         action='store_true',
@@ -495,6 +552,11 @@ if __name__ == '__main__':
                         action='store_true',
                         help='Submit the order to Jing Dong',
                         default=True)
+    parser.add_argument('-t', '--timer',
+                        type=str,
+                        help='Set time to start monitoring. e.g. \"23:59:58\" , if no setting, start immediately',
+                        default="")
+
     sku_id = '100010793473'    # iPad Pro 10.5的sku    https://item.jd.com/5504364.html
     # 浙江省台州市温岭市松门镇的id, 如何获取area_id请看area_id.png
     area_id = '1_2800_2848_0'
@@ -504,11 +566,17 @@ if __name__ == '__main__':
         options.good = sku_id
     if options.area == '':
         options.area = area_id
+    options.count = 1
+
 
     spider = JDSpider()
     if not spider.checkLogin():
         if not spider.login_by_QR():
             sys.exit(-1)
 
-    while not spider.buy(options) and options.flush:
-        time.sleep(options.wait / 1000.0)
+    while True:
+        if should_monitor(options.timer):
+            while not spider.buy(options) and options.flush:
+                time.sleep(options.wait / 1000.0)
+            break
+        time.sleep(1)
