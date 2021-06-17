@@ -495,13 +495,13 @@ if __name__ == '__main__':
                         action='store_true',
                         help='Submit the order to Jing Dong',
                         default=True)
-    iPad_Pro_id = '5173441'    # iPad Pro 10.5的sku    https://item.jd.com/5504364.html
+    sku_id = '100010793473'    # iPad Pro 10.5的sku    https://item.jd.com/5504364.html
     # 浙江省台州市温岭市松门镇的id, 如何获取area_id请看area_id.png
-    area_id = '15_1290_22049_22142'
+    area_id = '1_2800_2848_0'
     options = parser.parse_args()
 
     if options.good == '':
-        options.good = iPad_Pro_id
+        options.good = sku_id
     if options.area == '':
         options.area = area_id
 
