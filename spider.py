@@ -542,7 +542,7 @@ if __name__ == '__main__':
     parser.add_argument('-c', '--count', type=int,
                         help='The count to buy', default=1)
     parser.add_argument('-w', '--wait',
-                        type=int, default=1000,ç
+                        type=int, default=1000,
                         help='Flush time interval, unit MS')
     parser.add_argument('-f', '--flush',
                         action='store_true',
